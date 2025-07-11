@@ -24,13 +24,16 @@ arrayvec = { version = "0.7", optional = true, default-features = false }
 blobby = { version = "0.4.0-pre.0", optional = true }
 bytes = { version = "1", optional = true, default-features = false }
 heapless = { version = "0.8", optional = true, default-features = false }
+cipher = { version = "0.5.0-rc.0", optional = true, default-features = false, path = "../../traits/cipher" }
+
 
 [features]
-default = ["rand_core"]
+default = ["rand_core", "streaming"]
 alloc = []
 dev = ["blobby", "alloc"]
 os_rng = ["crypto-common/os_rng", "rand_core"]
 rand_core = ["crypto-common/rand_core"]
+streaming = ["cipher"]
 
 [package.metadata.docs.rs]
 all-features = true

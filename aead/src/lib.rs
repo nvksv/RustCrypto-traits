@@ -46,6 +46,8 @@ use bytes::BytesMut;
 use crypto_common::rand_core::{OsError, OsRng, TryRngCore};
 #[cfg(feature = "rand_core")]
 use rand_core::{CryptoRng, TryCryptoRng};
+#[cfg(feature = "streaming")]
+use cipher::StreamCipher;
 
 /// Error type.
 ///
@@ -419,6 +421,21 @@ impl<T: AeadInOut> AeadInPlace for T {
     ) -> Result<()> {
         self.decrypt_inout_detached(nonce, associated_data, buffer.into(), tag)
     }
+}
+
+#[cfg(feature = "streaming")]
+pub trait AeadFinalize<TagSize: ArraySize> {
+    fn finalize( self ) -> Result<Array<u8, TagSize>>;
+    fn verify( self, expected: &Array<u8, TagSize> ) -> Result<()>;
+}
+
+#[cfg(feature = "streaming")]
+pub trait AeadToStreaming: AeadCore {
+    type Encryptor: StreamCipher + AeadFinalize<Self::TagSize>;
+    type Decryptor: StreamCipher + AeadFinalize<Self::TagSize>;
+
+    fn to_encryptor( &self, nonce: &Array<u8, <Self as AeadCore>::NonceSize> ) -> Self::Encryptor;
+    fn to_decryptor( &self, nonce: &Array<u8, <Self as AeadCore>::NonceSize> ) -> Self::Encryptor;
 }
 
 /// AEAD payloads (message + AAD).
