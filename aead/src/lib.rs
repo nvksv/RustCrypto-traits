@@ -424,18 +424,22 @@ impl<T: AeadInOut> AeadInPlace for T {
 }
 
 #[cfg(feature = "streaming")]
-pub trait AeadFinalize<TagSize: ArraySize> {
-    fn finalize( self ) -> Result<Array<u8, TagSize>>;
-    fn verify( self, expected: &Array<u8, TagSize> ) -> Result<()>;
+pub trait AeadChunkedCipher: StreamCipher {
+    type TagSize: ArraySize;
+
+    fn apply_associated_data( &mut self, associated_data: &[u8] ) -> Result<()>;
+
+    fn finalize( self ) -> Result<Array<u8, Self::TagSize>>;
+    fn verify( self, expected: &Array<u8, Self::TagSize> ) -> Result<()>;
 }
 
 #[cfg(feature = "streaming")]
-pub trait AeadToStreaming: AeadCore {
-    type Encryptor: StreamCipher + AeadFinalize<Self::TagSize>;
-    type Decryptor: StreamCipher + AeadFinalize<Self::TagSize>;
+pub trait AeadToChunked: AeadCore {
+    type Encryptor: AeadChunkedCipher<TagSize = Self::TagSize>;
+    type Decryptor: AeadChunkedCipher<TagSize = Self::TagSize>;
 
     fn to_encryptor( &self, nonce: &Array<u8, <Self as AeadCore>::NonceSize> ) -> Self::Encryptor;
-    fn to_decryptor( &self, nonce: &Array<u8, <Self as AeadCore>::NonceSize> ) -> Self::Encryptor;
+    fn to_decryptor( &self, nonce: &Array<u8, <Self as AeadCore>::NonceSize> ) -> Self::Decryptor;
 }
 
 /// AEAD payloads (message + AAD).
