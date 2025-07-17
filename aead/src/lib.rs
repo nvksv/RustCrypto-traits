@@ -46,7 +46,7 @@ use bytes::BytesMut;
 use crypto_common::rand_core::{OsError, OsRng, TryRngCore};
 #[cfg(feature = "rand_core")]
 use rand_core::{CryptoRng, TryCryptoRng};
-#[cfg(feature = "streaming")]
+#[cfg(feature = "chunked")]
 use cipher::StreamCipher;
 
 /// Error type.
@@ -423,7 +423,7 @@ impl<T: AeadInOut> AeadInPlace for T {
     }
 }
 
-#[cfg(feature = "streaming")]
+#[cfg(feature = "chunked")]
 pub trait AeadChunkedCipher: StreamCipher {
     type TagSize: ArraySize;
 
@@ -433,7 +433,7 @@ pub trait AeadChunkedCipher: StreamCipher {
     fn verify( self, expected: &Array<u8, Self::TagSize> ) -> Result<()>;
 }
 
-#[cfg(feature = "streaming")]
+#[cfg(feature = "chunked")]
 pub trait AeadToChunked: AeadCore {
     type Encryptor: AeadChunkedCipher<TagSize = Self::TagSize>;
     type Decryptor: AeadChunkedCipher<TagSize = Self::TagSize>;
