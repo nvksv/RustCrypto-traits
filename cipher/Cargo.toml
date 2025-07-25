@@ -14,7 +14,8 @@ description = "Traits for describing block ciphers and stream ciphers"
 
 [dependencies]
 crypto-common = { version = "0.2.0-rc.3", path = "../crypto-common" }
-inout = "0.2.0-rc.4"
+# inout = "0.2.0-rc.4"
+inout = { version = "0.2.0-rc.4", path = "../../../RustCrypto/utils/inout" }
 
 # optional dependencies
 blobby = { version = "0.4.0-pre.0", optional = true }

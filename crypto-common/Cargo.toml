@@ -13,7 +13,8 @@ categories = ["cryptography", "no-std"]
 description = "Common cryptographic traits"
 
 [dependencies]
-hybrid-array = "0.3"
+#hybrid-array = "0.3"
+hybrid-array = { version = "0.3", path = "../../../RustCrypto/hybrid-array" }
 
 # optional dependencies
 rand_core = { version = "0.9", optional = true }
