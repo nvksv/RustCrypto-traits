@@ -23,6 +23,7 @@ inout = { version = "0.2.2", path = "../../../RustCrypto/utils/inout" }
 arrayvec = { version = "0.7", optional = true, default-features = false }
 blobby = { version = "0.4", optional = true, path = "../../../RustCrypto/utils/blobby" }
 bytes = { version = "1", optional = true, default-features = false }
+cipher = { version = "0.5.0-rc.3", optional = true, default-features = false, path = "../../traits/cipher" }
 
 [features]
 default = ["rand_core", "chunked"]
