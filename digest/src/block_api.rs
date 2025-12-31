@@ -3,7 +3,7 @@
 //! Usage of traits in this module in user code is discouraged. Instead use
 //! core algorithm wrapped by the wrapper types, which implement the
 //! higher-level traits.
-use crate::InvalidOutputSize;
+use crate::{Digest, HashMarker, InvalidOutputSize};
 
 pub use block_buffer::{Eager, Lazy};
 pub use crypto_common::{AlgorithmName, Block, BlockSizeUser, OutputSizeUser, Reset};
@@ -28,6 +28,32 @@ pub trait UpdateCore: BlockSizeUser {
 pub trait BufferKindUser: BlockSizeUser {
     /// Block buffer kind over which type operates.
     type BufferKind: BufferKind;
+}
+
+/// Trait implemented by eager hashes which expose their block-level core.
+pub trait EagerHash: BlockSizeUser + Digest {
+    /// Block-level core type of the hash.
+    type Core: HashMarker
+        + UpdateCore
+        + FixedOutputCore
+        + BlockSizeUser<BlockSize = <Self as BlockSizeUser>::BlockSize>
+        + BufferKindUser<BufferKind = Eager>
+        + Default
+        + Clone;
+}
+
+impl<T> EagerHash for T
+where
+    T: CoreProxy + BlockSizeUser + Digest,
+    <T as CoreProxy>::Core: HashMarker
+        + UpdateCore
+        + FixedOutputCore
+        + BlockSizeUser<BlockSize = <Self as BlockSizeUser>::BlockSize>
+        + BufferKindUser<BufferKind = Eager>
+        + Default
+        + Clone,
+{
+    type Core = T::Core;
 }
 
 /// Core trait for hash functions with fixed output size.
@@ -85,6 +111,12 @@ pub trait VariableOutputCore: UpdateCore + OutputSizeUser + BufferKindUser + Siz
     ///
     /// [`TRUNC_SIDE`]: VariableOutputCore::TRUNC_SIDE
     fn finalize_variable_core(&mut self, buffer: &mut Buffer<Self>, out: &mut Output<Self>);
+}
+
+/// Trait adding customization string to hash functions with variable output.
+pub trait VariableOutputCoreCustomized: VariableOutputCore {
+    /// Create new hasher instance with the given customization string and output size.
+    fn new_customized(customization: &[u8], output_size: usize) -> Self;
 }
 
 /// Type which used for defining truncation side in the [`VariableOutputCore`]

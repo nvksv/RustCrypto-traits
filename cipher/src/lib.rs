@@ -6,7 +6,7 @@
 //! [3]: https://en.wikipedia.org/wiki/Stream_cipher
 
 #![no_std]
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/RustCrypto/media/6ee8e381/logo.svg",
     html_favicon_url = "https://raw.githubusercontent.com/RustCrypto/media/6ee8e381/logo.svg"
@@ -17,8 +17,9 @@
     unused_lifetimes,
     missing_debug_implementations
 )]
+#![forbid(unsafe_code)]
 
-#[cfg(all(feature = "block-padding", feature = "alloc"))]
+#[cfg(feature = "alloc")]
 extern crate alloc;
 
 #[cfg(feature = "dev")]
@@ -34,7 +35,7 @@ pub use zeroize;
 
 pub mod block;
 #[cfg(feature = "dev")]
-mod dev;
+pub mod dev;
 pub mod stream;
 pub mod tweak;
 

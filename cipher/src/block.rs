@@ -17,7 +17,7 @@ use inout::{InOut, InOutBuf, NotEqualError};
 #[cfg(feature = "block-padding")]
 use inout::{
     InOutBufReserved, PadError,
-    block_padding::{Padding, UnpadError},
+    block_padding::{self, Padding},
 };
 
 mod backends;
@@ -87,7 +87,7 @@ pub trait BlockCipherEncrypt: BlockSizeUser + Sized {
     /// Returns [`PadError`] if length of output buffer is not sufficient.
     #[cfg(feature = "block-padding")]
     #[inline]
-    fn encrypt_padded_inout<'out, P: Padding<Self::BlockSize>>(
+    fn encrypt_padded_inout<'out, P: Padding>(
         &self,
         data: InOutBufReserved<'_, 'out, u8>,
     ) -> Result<&'out [u8], PadError> {
@@ -104,7 +104,7 @@ pub trait BlockCipherEncrypt: BlockSizeUser + Sized {
     /// Returns [`PadError`] if length of output buffer is not sufficient.
     #[cfg(feature = "block-padding")]
     #[inline]
-    fn encrypt_padded<'a, P: Padding<Self::BlockSize>>(
+    fn encrypt_padded<'a, P: Padding>(
         &self,
         buf: &'a mut [u8],
         msg_len: usize,
@@ -118,7 +118,7 @@ pub trait BlockCipherEncrypt: BlockSizeUser + Sized {
     /// Returns [`PadError`] if length of output buffer is not sufficient.
     #[cfg(feature = "block-padding")]
     #[inline]
-    fn encrypt_padded_b2b<'a, P: Padding<Self::BlockSize>>(
+    fn encrypt_padded_b2b<'a, P: Padding>(
         &self,
         msg: &[u8],
         out_buf: &'a mut [u8],
@@ -127,19 +127,43 @@ pub trait BlockCipherEncrypt: BlockSizeUser + Sized {
         self.encrypt_padded_inout::<P>(buf)
     }
 
-    /// Pad input and encrypt into a newly allocated Vec. Returns resulting ciphertext Vec.
+    /// Pad `msg` with padding algorithm `P`, encrypt it into a newly allocated `Vec`,
+    /// and return the resulting ciphertext vector.
+    ///
+    /// # Panics
+    /// If `NoPadding` is used with a message size that is not a multiple of the cipher block size.
     #[cfg(all(feature = "block-padding", feature = "alloc"))]
     #[inline]
-    fn encrypt_padded_vec<P: Padding<Self::BlockSize>>(&self, msg: &[u8]) -> Vec<u8> {
+    fn encrypt_padded_vec<P: Padding>(&self, msg: &[u8]) -> Vec<u8> {
+        use block_padding::{NoPadding, ZeroPadding};
+        use core::any::TypeId;
         use crypto_common::typenum::Unsigned;
+
         let bs = Self::BlockSize::USIZE;
-        let mut out = vec![0; bs * (msg.len() / bs + 1)];
-        let len = self
-            .encrypt_padded_b2b::<P>(msg, &mut out)
-            .expect("enough space for encrypting is allocated")
+        let msg_len = msg.len();
+
+        let pad_type_id = TypeId::of::<P>();
+        let buf_blocks_len = if pad_type_id == TypeId::of::<NoPadding>() {
+            if msg_len % bs != 0 {
+                panic!(
+                    "NoPadding is used with a {msg_len}‑byte message,
+                    which is not a multiple of the {bs}‑byte cipher block size"
+                );
+            }
+            msg_len / bs
+        } else if pad_type_id == TypeId::of::<ZeroPadding>() {
+            msg_len.div_ceil(bs)
+        } else {
+            1 + msg_len / bs
+        };
+
+        let mut buf = vec![0; bs * buf_blocks_len];
+        let res_len = self
+            .encrypt_padded_b2b::<P>(msg, &mut buf)
+            .expect("`buf` has enough space for encryption")
             .len();
-        out.truncate(len);
-        out
+        buf.truncate(res_len);
+        buf
     }
 }
 
@@ -197,67 +221,64 @@ pub trait BlockCipherDecrypt: BlockSizeUser {
 
     /// Decrypt input and unpad it. Returns resulting plaintext slice.
     ///
-    /// Returns [`UnpadError`] if padding is malformed or if input length is
+    /// Returns [`block_padding::Error`] if padding is malformed or if input length is
     /// not multiple of `Self::BlockSize`.
     #[cfg(feature = "block-padding")]
     #[inline]
-    fn decrypt_padded_inout<'out, P: Padding<Self::BlockSize>>(
+    fn decrypt_padded_inout<'out, P: Padding>(
         &self,
         data: InOutBuf<'_, 'out, u8>,
-    ) -> Result<&'out [u8], UnpadError> {
+    ) -> Result<&'out [u8], block_padding::Error> {
         let (mut blocks, tail) = data.into_chunks();
         if !tail.is_empty() {
-            return Err(UnpadError);
+            return Err(block_padding::Error);
         }
         self.decrypt_blocks_inout(blocks.reborrow());
-        P::unpad_blocks(blocks.into_out())
+        P::unpad_blocks::<Self::BlockSize>(blocks.into_out())
     }
 
     /// Decrypt input and unpad it in-place. Returns resulting plaintext slice.
     ///
-    /// Returns [`UnpadError`] if padding is malformed or if input length is
+    /// Returns [`block_padding::Error`] if padding is malformed or if input length is
     /// not multiple of `Self::BlockSize`.
     #[cfg(feature = "block-padding")]
     #[inline]
-    fn decrypt_padded<'a, P: Padding<Self::BlockSize>>(
+    fn decrypt_padded<'a, P: Padding>(
         &self,
         buf: &'a mut [u8],
-    ) -> Result<&'a [u8], UnpadError> {
+    ) -> Result<&'a [u8], block_padding::Error> {
         self.decrypt_padded_inout::<P>(buf.into())
     }
 
     /// Decrypt input and unpad it buffer-to-buffer. Returns resulting
     /// plaintext slice.
     ///
-    /// Returns [`UnpadError`] if padding is malformed or if input length is
+    /// Returns [`block_padding::Error`] if padding is malformed or if input length is
     /// not multiple of `Self::BlockSize`.
     #[cfg(feature = "block-padding")]
     #[inline]
-    fn decrypt_padded_b2b<'a, P: Padding<Self::BlockSize>>(
+    fn decrypt_padded_b2b<'a, P: Padding>(
         &self,
         in_buf: &[u8],
         out_buf: &'a mut [u8],
-    ) -> Result<&'a [u8], UnpadError> {
+    ) -> Result<&'a [u8], block_padding::Error> {
         if out_buf.len() < in_buf.len() {
-            return Err(UnpadError);
+            return Err(block_padding::Error);
         }
         let n = in_buf.len();
         // note: `new` always returns `Ok` here
-        let buf = InOutBuf::new(in_buf, &mut out_buf[..n]).map_err(|_| UnpadError)?;
+        let buf = InOutBuf::new(in_buf, &mut out_buf[..n]).map_err(|_| block_padding::Error)?;
         self.decrypt_padded_inout::<P>(buf)
     }
 
     /// Decrypt input and unpad it in a newly allocated Vec. Returns resulting
     /// plaintext `Vec`.
     ///
-    /// Returns [`UnpadError`] if padding is malformed or if input length is
+    /// Returns [`block_padding::Error`] if padding is malformed or if input length is
     /// not multiple of `Self::BlockSize`.
     #[cfg(all(feature = "block-padding", feature = "alloc"))]
     #[inline]
-    fn decrypt_padded_vec<P: Padding<Self::BlockSize>>(
-        &self,
-        buf: &[u8],
-    ) -> Result<Vec<u8>, UnpadError> {
+    fn decrypt_padded_vec<P: Padding>(&self, buf: &[u8]) -> Result<Vec<u8>, block_padding::Error> {
         let mut out = vec![0; buf.len()];
         let len = self.decrypt_padded_b2b::<P>(buf, &mut out)?.len();
         out.truncate(len);
@@ -338,7 +359,7 @@ pub trait BlockModeEncrypt: BlockSizeUser + Sized {
     /// Returns [`PadError`] if length of output buffer is not sufficient.
     #[cfg(feature = "block-padding")]
     #[inline]
-    fn encrypt_padded_inout<'out, P: Padding<Self::BlockSize>>(
+    fn encrypt_padded_inout<'out, P: Padding>(
         mut self,
         data: InOutBufReserved<'_, 'out, u8>,
     ) -> Result<&'out [u8], PadError> {
@@ -355,11 +376,7 @@ pub trait BlockModeEncrypt: BlockSizeUser + Sized {
     /// Returns [`PadError`] if length of output buffer is not sufficient.
     #[cfg(feature = "block-padding")]
     #[inline]
-    fn encrypt_padded<P: Padding<Self::BlockSize>>(
-        self,
-        buf: &mut [u8],
-        msg_len: usize,
-    ) -> Result<&[u8], PadError> {
+    fn encrypt_padded<P: Padding>(self, buf: &mut [u8], msg_len: usize) -> Result<&[u8], PadError> {
         let buf = InOutBufReserved::from_mut_slice(buf, msg_len).map_err(|_| PadError)?;
         self.encrypt_padded_inout::<P>(buf)
     }
@@ -369,7 +386,7 @@ pub trait BlockModeEncrypt: BlockSizeUser + Sized {
     /// Returns [`PadError`] if length of output buffer is not sufficient.
     #[cfg(feature = "block-padding")]
     #[inline]
-    fn encrypt_padded_b2b<'a, P: Padding<Self::BlockSize>>(
+    fn encrypt_padded_b2b<'a, P: Padding>(
         self,
         msg: &[u8],
         out_buf: &'a mut [u8],
@@ -378,19 +395,43 @@ pub trait BlockModeEncrypt: BlockSizeUser + Sized {
         self.encrypt_padded_inout::<P>(buf)
     }
 
-    /// Pad input and encrypt into a newly allocated Vec. Returns resulting ciphertext Vec.
+    /// Pad `msg` with padding algorithm `P`, encrypt it into a newly allocated `Vec`,
+    /// and return the resulting ciphertext vector.
+    ///
+    /// # Panics
+    /// If `NoPadding` is used with a message size that is not a multiple of the cipher block size.
     #[cfg(all(feature = "block-padding", feature = "alloc"))]
     #[inline]
-    fn encrypt_padded_vec<P: Padding<Self::BlockSize>>(self, msg: &[u8]) -> Vec<u8> {
+    fn encrypt_padded_vec<P: Padding>(self, msg: &[u8]) -> Vec<u8> {
+        use block_padding::{NoPadding, ZeroPadding};
+        use core::any::TypeId;
         use crypto_common::typenum::Unsigned;
+
         let bs = Self::BlockSize::USIZE;
-        let mut out = vec![0; bs * (msg.len() / bs + 1)];
-        let len = self
-            .encrypt_padded_b2b::<P>(msg, &mut out)
-            .expect("enough space for encrypting is allocated")
+        let msg_len = msg.len();
+
+        let pad_type_id = TypeId::of::<P>();
+        let buf_blocks_len = if pad_type_id == TypeId::of::<NoPadding>() {
+            if msg_len % bs != 0 {
+                panic!(
+                    "NoPadding is used with a {msg_len}‑byte message,
+                    which is not a multiple of the {bs}‑byte cipher block size"
+                );
+            }
+            msg_len / bs
+        } else if pad_type_id == TypeId::of::<ZeroPadding>() {
+            msg_len.div_ceil(bs)
+        } else {
+            1 + msg_len / bs
+        };
+
+        let mut buf = vec![0; bs * buf_blocks_len];
+        let res_len = self
+            .encrypt_padded_b2b::<P>(msg, &mut buf)
+            .expect("`buf` has enough space for encryption")
             .len();
-        out.truncate(len);
-        out
+        buf.truncate(res_len);
+        buf
     }
 }
 
@@ -452,67 +493,61 @@ pub trait BlockModeDecrypt: BlockSizeUser + Sized {
 
     /// Decrypt input and unpad it. Returns resulting plaintext slice.
     ///
-    /// Returns [`UnpadError`] if padding is malformed or if input length is
+    /// Returns [`block_padding::Error`] if padding is malformed or if input length is
     /// not multiple of `Self::BlockSize`.
     #[cfg(feature = "block-padding")]
     #[inline]
-    fn decrypt_padded_inout<'out, P: Padding<Self::BlockSize>>(
+    fn decrypt_padded_inout<'out, P: Padding>(
         mut self,
         data: InOutBuf<'_, 'out, u8>,
-    ) -> Result<&'out [u8], UnpadError> {
+    ) -> Result<&'out [u8], block_padding::Error> {
         let (mut blocks, tail) = data.into_chunks();
         if !tail.is_empty() {
-            return Err(UnpadError);
+            return Err(block_padding::Error);
         }
         self.decrypt_blocks_inout(blocks.reborrow());
-        P::unpad_blocks(blocks.into_out())
+        P::unpad_blocks::<Self::BlockSize>(blocks.into_out())
     }
 
     /// Decrypt input and unpad it in-place. Returns resulting plaintext slice.
     ///
-    /// Returns [`UnpadError`] if padding is malformed or if input length is
+    /// Returns [`block_padding::Error`] if padding is malformed or if input length is
     /// not multiple of `Self::BlockSize`.
     #[cfg(feature = "block-padding")]
     #[inline]
-    fn decrypt_padded<P: Padding<Self::BlockSize>>(
-        self,
-        buf: &mut [u8],
-    ) -> Result<&[u8], UnpadError> {
+    fn decrypt_padded<P: Padding>(self, buf: &mut [u8]) -> Result<&[u8], block_padding::Error> {
         self.decrypt_padded_inout::<P>(buf.into())
     }
 
     /// Decrypt input and unpad it buffer-to-buffer. Returns resulting
     /// plaintext slice.
     ///
-    /// Returns [`UnpadError`] if padding is malformed or if input length is
+    /// Returns [`block_padding::Error`] if padding is malformed or if input length is
     /// not multiple of `Self::BlockSize`.
     #[cfg(feature = "block-padding")]
     #[inline]
-    fn decrypt_padded_b2b<'a, P: Padding<Self::BlockSize>>(
+    fn decrypt_padded_b2b<'a, P: Padding>(
         self,
         in_buf: &[u8],
         out_buf: &'a mut [u8],
-    ) -> Result<&'a [u8], UnpadError> {
+    ) -> Result<&'a [u8], block_padding::Error> {
         if out_buf.len() < in_buf.len() {
-            return Err(UnpadError);
+            return Err(block_padding::Error);
         }
         let n = in_buf.len();
         // note: `new` always returns `Ok` here
-        let buf = InOutBuf::new(in_buf, &mut out_buf[..n]).map_err(|_| UnpadError)?;
+        let buf = InOutBuf::new(in_buf, &mut out_buf[..n]).map_err(|_| block_padding::Error)?;
         self.decrypt_padded_inout::<P>(buf)
     }
 
     /// Decrypt input and unpad it in a newly allocated Vec. Returns resulting
     /// plaintext `Vec`.
     ///
-    /// Returns [`UnpadError`] if padding is malformed or if input length is
+    /// Returns [`block_padding::Error`] if padding is malformed or if input length is
     /// not multiple of `Self::BlockSize`.
     #[cfg(all(feature = "block-padding", feature = "alloc"))]
     #[inline]
-    fn decrypt_padded_vec<P: Padding<Self::BlockSize>>(
-        self,
-        buf: &[u8],
-    ) -> Result<Vec<u8>, UnpadError> {
+    fn decrypt_padded_vec<P: Padding>(self, buf: &[u8]) -> Result<Vec<u8>, block_padding::Error> {
         let mut out = vec![0; buf.len()];
         let len = self.decrypt_padded_b2b::<P>(buf, &mut out)?.len();
         out.truncate(len);

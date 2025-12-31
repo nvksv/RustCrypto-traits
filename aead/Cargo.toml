@@ -1,6 +1,6 @@
 [package]
 name = "aead"
-version = "0.6.0-rc.1"
+version = "0.6.0-rc.5"
 authors = ["RustCrypto Developers"]
 edition = "2024"
 rust-version = "1.85"
@@ -16,23 +16,19 @@ such as AES-GCM as ChaCha20Poly1305, which provide a high-level API
 """
 
 [dependencies]
-crypto-common = { version = "0.2.0-rc.3", path = "../crypto-common" }
-# inout = "0.2.0-rc.4"
-inout = {version = "0.2.0-rc.4", path = "../../../RustCrypto/utils/inout" }
+crypto-common = { version = "0.2.0-rc.8", path = "../crypto-common" }
+inout = { version = "0.2.2", path = "../../../RustCrypto/utils/inout" }
 
 # optional dependencies
 arrayvec = { version = "0.7", optional = true, default-features = false }
-blobby = { version = "0.4.0-pre.0", optional = true, path = "../../../RustCrypto/utils/blobby" }
+blobby = { version = "0.4", optional = true, path = "../../../RustCrypto/utils/blobby" }
 bytes = { version = "1", optional = true, default-features = false }
-heapless = { version = "0.8", optional = true, default-features = false }
-cipher = { version = "0.5.0-rc.0", optional = true, default-features = false, path = "../../../RustCrypto/traits/cipher" }
-
 
 [features]
 default = ["rand_core", "chunked"]
 alloc = []
 dev = ["blobby", "alloc"]
-os_rng = ["crypto-common/os_rng", "rand_core"]
+getrandom = ["crypto-common/getrandom"]
 rand_core = ["crypto-common/rand_core"]
 chunked = ["cipher"]
 

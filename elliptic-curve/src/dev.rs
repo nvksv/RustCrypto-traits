@@ -6,7 +6,7 @@
 use crate::{
     BatchNormalize, Curve, CurveArithmetic, CurveGroup, FieldBytesEncoding, PrimeCurve,
     array::typenum::U32,
-    bigint::{Limb, U256},
+    bigint::{Limb, Odd, U256},
     error::{Error, Result},
     ops::{Invert, LinearCombination, Reduce, ShrAssign},
     point::{AffineCoordinates, NonIdentity},
@@ -31,9 +31,6 @@ use alloc::vec::Vec;
 #[cfg(feature = "bits")]
 use ff::PrimeFieldBits;
 
-#[cfg(feature = "jwk")]
-use crate::JwkParameters;
-
 /// Pseudo-coordinate for fixed-based scalar mult output
 pub const PSEUDO_COORDINATE_FIXED_BASE_MUL: [u8; 32] =
     hex!("deadbeef00000000000000000000000000000000000000000000000000000001");
@@ -53,9 +50,8 @@ pub type PublicKey = crate::PublicKey<MockCurve>;
 /// Secret key.
 pub type SecretKey = crate::SecretKey<MockCurve>;
 
-/// Scalar primitive type.
-// TODO(tarcieri): make this the scalar type when it's more capable
-pub type ScalarPrimitive = crate::ScalarPrimitive<MockCurve>;
+/// Scalar value type.
+pub type ScalarValue = crate::ScalarValue<MockCurve>;
 
 /// Scalar bits.
 #[cfg(feature = "bits")]
@@ -73,8 +69,9 @@ impl Curve for MockCurve {
     type FieldBytesSize = U32;
     type Uint = U256;
 
-    const ORDER: U256 =
-        U256::from_be_hex("ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551");
+    const ORDER: Odd<U256> = Odd::<U256>::from_be_hex(
+        "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551",
+    );
 }
 
 impl PrimeCurve for MockCurve {}
@@ -90,18 +87,13 @@ impl AssociatedOid for MockCurve {
     const OID: pkcs8::ObjectIdentifier = pkcs8::ObjectIdentifier::new_unwrap("1.2.840.10045.3.1.7");
 }
 
-#[cfg(feature = "jwk")]
-impl JwkParameters for MockCurve {
-    const CRV: &'static str = "P-256";
-}
-
 /// Example scalar type
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, PartialOrd, Ord)]
-pub struct Scalar(ScalarPrimitive);
+pub struct Scalar(ScalarValue);
 
 impl Field for Scalar {
-    const ZERO: Self = Self(ScalarPrimitive::ZERO);
-    const ONE: Self = Self(ScalarPrimitive::ONE);
+    const ZERO: Self = Self(ScalarValue::ZERO);
+    const ONE: Self = Self(ScalarValue::ONE);
 
     fn try_from_rng<R: TryRngCore + ?Sized>(rng: &mut R) -> core::result::Result<Self, R::Error> {
         let mut bytes = FieldBytes::default();
@@ -154,7 +146,7 @@ impl PrimeField for Scalar {
     const DELTA: Self = Self::ZERO; // BOGUS!
 
     fn from_repr(bytes: FieldBytes) -> CtOption<Self> {
-        ScalarPrimitive::from_bytes(&bytes).map(Self)
+        ScalarValue::from_bytes(&bytes).map(Self)
     }
 
     fn to_repr(&self) -> FieldBytes {
@@ -191,7 +183,7 @@ impl AsRef<Scalar> for Scalar {
 
 impl ConditionallySelectable for Scalar {
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
-        Self(ScalarPrimitive::conditional_select(&a.0, &b.0, choice))
+        Self(ScalarValue::conditional_select(&a.0, &b.0, choice))
     }
 }
 
@@ -366,16 +358,16 @@ impl Invert for Scalar {
 }
 
 impl Reduce<U256> for Scalar {
-    type Bytes = FieldBytes;
-
-    fn reduce(w: U256) -> Self {
+    fn reduce(w: &U256) -> Self {
         let (r, underflow) = w.borrowing_sub(&MockCurve::ORDER, Limb::ZERO);
         let underflow = Choice::from((underflow.0 >> (Limb::BITS - 1)) as u8);
-        let reduced = U256::conditional_select(&w, &r, !underflow);
-        Self(ScalarPrimitive::new(reduced).unwrap())
+        let reduced = U256::conditional_select(w, &r, !underflow);
+        Self(ScalarValue::new(reduced).unwrap())
     }
+}
 
-    fn reduce_bytes(_: &FieldBytes) -> Self {
+impl Reduce<FieldBytes> for Scalar {
+    fn reduce(_w: &FieldBytes) -> Self {
         todo!()
     }
 }
@@ -394,14 +386,14 @@ impl From<NonZeroScalar> for Scalar {
     }
 }
 
-impl From<ScalarPrimitive> for Scalar {
-    fn from(scalar: ScalarPrimitive) -> Scalar {
+impl From<ScalarValue> for Scalar {
+    fn from(scalar: ScalarValue) -> Scalar {
         Self(scalar)
     }
 }
 
-impl From<Scalar> for ScalarPrimitive {
-    fn from(scalar: Scalar) -> ScalarPrimitive {
+impl From<Scalar> for ScalarValue {
+    fn from(scalar: Scalar) -> ScalarValue {
         scalar.0
     }
 }
@@ -424,7 +416,7 @@ impl TryFrom<U256> for Scalar {
     type Error = Error;
 
     fn try_from(w: U256) -> Result<Self> {
-        Option::from(ScalarPrimitive::new(w)).map(Self).ok_or(Error)
+        ScalarValue::new(w).into_option().map(Self).ok_or(Error)
     }
 }
 
@@ -432,7 +424,7 @@ impl FromUintUnchecked for Scalar {
     type Uint = U256;
 
     fn from_uint_unchecked(uint: U256) -> Self {
-        Self(ScalarPrimitive::from_uint_unchecked(uint))
+        Self(ScalarValue::from_uint_unchecked(uint))
     }
 }
 
@@ -455,12 +447,13 @@ impl IsHigh for Scalar {
 }
 
 /// Example affine point type
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Default, Debug, Eq, PartialEq)]
 pub enum AffinePoint {
     /// Result of fixed-based scalar multiplication.
     FixedBaseOutput(Scalar),
 
     /// Identity.
+    #[default]
     Identity,
 
     /// Base point.
@@ -472,6 +465,10 @@ pub enum AffinePoint {
 
 impl AffineCoordinates for AffinePoint {
     type FieldRepr = FieldBytes;
+
+    fn from_coordinates(_: &FieldBytes, _: &FieldBytes) -> CtOption<Self> {
+        unimplemented!();
+    }
 
     fn x(&self) -> FieldBytes {
         unimplemented!();
@@ -507,12 +504,6 @@ impl ConditionallySelectable for AffinePoint {
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
         // Not really constant time, but this is dev code
         if choice.into() { *b } else { *a }
-    }
-}
-
-impl Default for AffinePoint {
-    fn default() -> Self {
-        Self::Identity
     }
 }
 
@@ -573,12 +564,13 @@ impl TryFrom<AffinePoint> for NonIdentity<AffinePoint> {
 }
 
 /// Example projective point type
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Default, Debug, Eq, PartialEq)]
 pub enum ProjectivePoint {
     /// Result of fixed-based scalar multiplication
     FixedBaseOutput(Scalar),
 
     /// Is this point the identity point?
+    #[default]
     Identity,
 
     /// Is this point the generator point?
@@ -621,12 +613,6 @@ impl ConstantTimeEq for ProjectivePoint {
 impl ConditionallySelectable for ProjectivePoint {
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
         if choice.into() { *b } else { *a }
-    }
-}
-
-impl Default for ProjectivePoint {
-    fn default() -> Self {
-        Self::Identity
     }
 }
 

@@ -1,5 +1,5 @@
 #![no_std]
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![doc = include_str!("../README.md")]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/RustCrypto/media/8f1a9894/logo.svg",
@@ -29,9 +29,7 @@ pub use arrayvec;
 #[cfg(feature = "bytes")]
 pub use bytes;
 #[cfg(feature = "rand_core")]
-pub use crypto_common::rand_core;
-#[cfg(feature = "heapless")]
-pub use heapless;
+pub use crypto_common::{Generate, rand_core};
 pub use inout;
 
 use core::fmt;
@@ -67,7 +65,53 @@ impl fmt::Display for Error {
 
 impl core::error::Error for Error {}
 
-/// Nonce: single-use value for ensuring ciphertexts are unique
+/// Nonce: single-use value for ensuring ciphertexts are unique.
+///
+/// AEAD algorithms accept a parameter to encryption/decryption called
+/// a "nonce" which must be unique every time encryption is performed and
+/// never repeated for the same key. The nonce is often prepended to the
+/// ciphertext, a.k.a. an explicit nonce, but may also be an implicit counter.
+///
+/// AEAD decryption takes the nonce which was originally used to produce a
+/// given ciphertext as a parameter along with the ciphertext itself.
+///
+/// # Generating random nonces
+///
+/// Nonces don't necessarily have to be random, but it is a simple strategy
+/// which can be implemented as follows using the [`Generate`] trait
+/// (requires `getrandom` feature):
+///
+/// ```text
+/// use aead::{Nonce, Generate};
+///
+/// let nonce = Nonce::<AeadAlg>::generate();
+/// ```
+///
+/// <div class="warning">
+/// AEAD algorithms often fail catastrophically if nonces are ever repeated
+/// (with SIV modes being an exception).
+///
+/// Using random nonces runs the risk of repeating them unless the nonce
+/// size is particularly large, e.g. 192-bit extended nonces used by the
+/// `XChaCha20Poly1305` and `XSalsa20Poly1305` constructions.
+///
+/// [NIST SP 800-38D] recommends the following:
+///
+/// > The total number of invocations of the authenticated encryption
+/// > function shall not exceed 2<sup>32</sup>, including all IV lengths and all
+/// > instances of the authenticated encryption function with the given key.
+///
+/// Following this guideline, only 4,294,967,296 messages with random
+/// nonces can be encrypted under a given key. While this bound is high,
+/// it's possible to encounter in practice, and systems which might
+/// reach it should consider alternatives to purely random nonces, like
+/// a counter or a combination of a random nonce + counter.
+///
+/// See the [`aead-stream`] crate for a ready-made implementation of the latter.
+/// </div>
+///
+/// [NIST SP 800-38D]: https://csrc.nist.gov/publications/detail/sp/800-38d/final
+/// [`aead-stream`]: https://docs.rs/aead-stream
 pub type Nonce<A> = Array<u8, <A as AeadCore>::NonceSize>;
 
 /// Tag: authentication code which ensures ciphertexts are authentic
@@ -92,73 +136,6 @@ pub trait AeadCore {
 
     /// The AEAD tag position.
     const TAG_POSITION: TagPosition;
-
-    /// Generate a random nonce for this AEAD algorithm.
-    ///
-    /// AEAD algorithms accept a parameter to encryption/decryption called
-    /// a "nonce" which must be unique every time encryption is performed and
-    /// never repeated for the same key. The nonce is often prepended to the
-    /// ciphertext. The nonce used to produce a given ciphertext must be passed
-    /// to the decryption function in order for it to decrypt correctly.
-    ///
-    /// Nonces don't necessarily have to be random, but it is one strategy
-    /// which is implemented by this function.
-    ///
-    /// # ⚠️Security Warning
-    ///
-    /// AEAD algorithms often fail catastrophically if nonces are ever repeated
-    /// (with SIV modes being an exception).
-    ///
-    /// Using random nonces runs the risk of repeating them unless the nonce
-    /// size is particularly large (e.g. 192-bit extended nonces used by the
-    /// `XChaCha20Poly1305` and `XSalsa20Poly1305` constructions.
-    ///
-    /// [NIST SP 800-38D] recommends the following:
-    ///
-    /// > The total number of invocations of the authenticated encryption
-    /// > function shall not exceed 2^32, including all IV lengths and all
-    /// > instances of the authenticated encryption function with the given key.
-    ///
-    /// Following this guideline, only 4,294,967,296 messages with random
-    /// nonces can be encrypted under a given key. While this bound is high,
-    /// it's possible to encounter in practice, and systems which might
-    /// reach it should consider alternatives to purely random nonces, like
-    /// a counter or a combination of a random nonce + counter.
-    ///
-    /// See the [`aead-stream`] crate for a ready-made implementation of the latter.
-    ///
-    /// [NIST SP 800-38D]: https://csrc.nist.gov/publications/detail/sp/800-38d/final
-    /// [`aead-stream`]: https://docs.rs/aead-stream
-    #[cfg(feature = "os_rng")]
-    fn generate_nonce() -> core::result::Result<Nonce<Self>, OsError> {
-        let mut nonce = Nonce::<Self>::default();
-        OsRng.try_fill_bytes(&mut nonce)?;
-        Ok(nonce)
-    }
-
-    /// Generate a random nonce for this AEAD algorithm using the specified [`CryptoRng`].
-    ///
-    /// See [`AeadCore::generate_nonce`] documentation for requirements for
-    /// random nonces.
-    #[cfg(feature = "rand_core")]
-    fn generate_nonce_with_rng<R: CryptoRng + ?Sized>(rng: &mut R) -> Nonce<Self> {
-        let mut nonce = Nonce::<Self>::default();
-        rng.fill_bytes(&mut nonce);
-        nonce
-    }
-
-    /// Generate a random nonce for this AEAD algorithm using the specified [`TryCryptoRng`].
-    ///
-    /// See [`AeadCore::generate_nonce`] documentation for requirements for
-    /// random nonces.
-    #[cfg(feature = "rand_core")]
-    fn try_generate_nonce_with_rng<R: TryCryptoRng + ?Sized>(
-        rng: &mut R,
-    ) -> core::result::Result<Nonce<Self>, R::Error> {
-        let mut nonce = Nonce::<Self>::default();
-        rng.try_fill_bytes(&mut nonce)?;
-        Ok(nonce)
-    }
 }
 
 /// Authenticated Encryption with Associated Data (AEAD) algorithm.
@@ -530,17 +507,6 @@ impl<const N: usize> Buffer for arrayvec::ArrayVec<u8, N> {
 
     fn truncate(&mut self, len: usize) {
         arrayvec::ArrayVec::truncate(self, len);
-    }
-}
-
-#[cfg(feature = "heapless")]
-impl<const N: usize> Buffer for heapless::Vec<u8, N> {
-    fn extend_from_slice(&mut self, other: &[u8]) -> Result<()> {
-        heapless::Vec::extend_from_slice(self, other).map_err(|_| Error)
-    }
-
-    fn truncate(&mut self, len: usize) {
-        heapless::Vec::truncate(self, len);
     }
 }
 

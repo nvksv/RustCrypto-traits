@@ -1,5 +1,6 @@
 //! This module defines dummy (horribly insecure!) AEAD implementations
 //! to test implementation of the AEAD traits and helper macros in the `dev` module.
+#![cfg(feature = "dev")]
 use aead::{
     AeadCore, AeadInOut, Error, Key, KeyInit, KeySizeUser, Nonce, Result, Tag, TagPosition,
     array::Array, consts::U8,
@@ -91,7 +92,7 @@ impl DummyAead {
     }
 }
 
-struct PrefixDummyAead(DummyAead);
+pub struct PrefixDummyAead(DummyAead);
 
 impl KeySizeUser for PrefixDummyAead {
     type KeySize = U8;
@@ -130,7 +131,7 @@ impl AeadInOut for PrefixDummyAead {
     }
 }
 
-struct PostfixDummyAead(DummyAead);
+pub struct PostfixDummyAead(DummyAead);
 
 impl KeySizeUser for PostfixDummyAead {
     type KeySize = U8;
@@ -170,6 +171,11 @@ impl AeadInOut for PostfixDummyAead {
 }
 
 #[cfg(feature = "dev")]
-aead::new_test!(dummy_prefix, "prefix", PrefixDummyAead);
-#[cfg(feature = "dev")]
-aead::new_test!(dummy_postfix, "postfix", PostfixDummyAead);
+mod tests {
+    use super::{PostfixDummyAead, PrefixDummyAead};
+
+    aead::new_pass_test!(dummy_prefix_pass, "prefix_pass", PrefixDummyAead);
+    aead::new_fail_test!(dummy_prefix_fail, "prefix_fail", PrefixDummyAead);
+    aead::new_pass_test!(dummy_postfix_pass, "postfix_pass", PostfixDummyAead);
+    aead::new_fail_test!(dummy_postfix_fail, "postfix_fail", PostfixDummyAead);
+}

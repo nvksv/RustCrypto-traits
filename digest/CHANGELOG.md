@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## 0.11.0 (UNRELEASED)
 ### Added
 - `CustomizedInit` trait ([#1334])
+- `VariableOutputCoreCustomized` trait ([#1787], [#2043])
 - `buffer_fixed`, `buffer_ct_variable`, `buffer_rt_variable`, and `buffer_xof` macros ([#1799])
 - `CollisionResistance` trait ([#1820])
 
@@ -16,12 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Edition changed to 2024 and MSRV bumped to 1.85 ([#1759])
 - `CtVariableCoreWrapper` renamed to `CtOutWrapper` ([#1799])
 - Removed the OID type parameter from `CtOutWrapper` ([#1799])
+- Implementations of the `SerializableState` trait ([#1953])
+- `new_test!` and `new_mac_test!` macros ([#1958])
 
 ### Removed
 - `Mac::new`, `Mac::new_from_slice`, and `Mac::generate_key` methods ([#1173])
 - `CoreWrapper`, `RtVariableCoreWrapper`, and `XofReaderCoreWrapper` types ([#1799])
 - `HashReader` and `HashWriter` are moved to the `digest-io` crate ([#1809])
 - `io::Write/Read` implementations in favor of the `digest_io::IoWrapper` type ([#1809])
+- `VariableOutput` trait ([#2043])
 
 [#1173]: https://github.com/RustCrypto/traits/pull/1173
 [#1334]: https://github.com/RustCrypto/traits/pull/1334
@@ -29,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#1799]: https://github.com/RustCrypto/traits/pull/1799
 [#1809]: https://github.com/RustCrypto/traits/pull/1809
 [#1820]: https://github.com/RustCrypto/traits/pull/1820
+[#1953]: https://github.com/RustCrypto/traits/pull/1953
+[#1958]: https://github.com/RustCrypto/traits/pull/1958
+[#2043]: https://github.com/RustCrypto/traits/pull/2043
 
 ## 0.10.7 (2023-05-19)
 ### Changed

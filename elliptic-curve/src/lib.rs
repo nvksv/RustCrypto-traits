@@ -1,5 +1,5 @@
 #![no_std]
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![doc = include_str!("../README.md")]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/RustCrypto/media/8f1a9894/logo.svg",
@@ -61,9 +61,8 @@
 //! When the `serde` feature of this crate is enabled, `Serialize` and
 //! `Deserialize` impls are provided for the following types:
 //!
-//! - [`JwkEcKey`]
 //! - [`PublicKey`]
-//! - [`ScalarPrimitive`]
+//! - [`ScalarValue`]
 //!
 //! Please see type-specific documentation for more information.
 //!
@@ -95,8 +94,6 @@ pub mod ecdh;
 pub mod ops;
 #[cfg(feature = "sec1")]
 pub mod sec1;
-#[cfg(feature = "arithmetic")]
-pub mod weierstrass;
 
 mod error;
 mod field;
@@ -108,18 +105,15 @@ mod arithmetic;
 #[cfg(feature = "arithmetic")]
 mod public_key;
 
-#[cfg(feature = "jwk")]
-mod jwk;
-
 pub use crate::{
     error::{Error, Result},
     field::{FieldBytes, FieldBytesEncoding, FieldBytesSize},
-    scalar::ScalarPrimitive,
+    scalar::ScalarValue,
     secret_key::SecretKey,
 };
-pub use crypto_bigint as bigint;
-pub use hybrid_array as array;
-pub use hybrid_array::typenum::consts;
+pub use array;
+pub use array::typenum::consts;
+pub use bigint;
 pub use rand_core;
 pub use subtle;
 pub use zeroize;
@@ -136,34 +130,30 @@ pub use {
     group::{self, Curve as CurveGroup, Group},
 };
 
-#[cfg(feature = "jwk")]
-pub use crate::jwk::{JwkEcKey, JwkParameters};
-
 #[cfg(feature = "pkcs8")]
 pub use pkcs8;
 
+use array::ArraySize;
+use bigint::Odd;
 use core::{
     fmt::Debug,
     ops::{Add, ShrAssign},
 };
-use hybrid_array::ArraySize;
 
-/// Algorithm [`ObjectIdentifier`][`pkcs8::ObjectIdentifier`] for elliptic
-/// curve public key cryptography (`id-ecPublicKey`).
+/// Algorithm [`ObjectIdentifier`][`pkcs8::ObjectIdentifier`] for elliptic curve public key
+/// cryptography (`id-ecPublicKey`).
 ///
-/// <http://oid-info.com/get/1.2.840.10045.2.1>
+/// <https://oid-base.com/get/1.2.840.10045.2.1>
 #[cfg(feature = "pkcs8")]
 pub const ALGORITHM_OID: pkcs8::ObjectIdentifier =
     pkcs8::ObjectIdentifier::new_unwrap("1.2.840.10045.2.1");
 
 /// Elliptic curve.
 ///
-/// This trait is intended to be impl'd by a ZST which represents a concrete
-/// elliptic curve.
+/// This trait is intended to be impl'd by a ZST which represents a concrete elliptic curve.
 ///
-/// Other traits in this crate which are bounded by [`Curve`] are intended to
-/// be impl'd by these ZSTs, facilitating types which are generic over elliptic
-/// curves (e.g. [`SecretKey`]).
+/// Other traits in this crate which are bounded by [`Curve`] are intended to be impl'd by these
+/// ZSTs, facilitating types which are generic over elliptic curves (e.g. [`SecretKey`]).
 pub trait Curve: 'static + Copy + Clone + Debug + Default + Eq + Ord + Send + Sync {
     /// Size of a serialized field element in bytes.
     ///
@@ -173,20 +163,17 @@ pub trait Curve: 'static + Copy + Clone + Debug + Default + Eq + Ord + Send + Sy
 
     /// Integer type used to represent field elements of this elliptic curve.
     type Uint: bigint::ArrayEncoding
-        + bigint::AddMod<Output = Self::Uint>
         + bigint::Encoding
         + bigint::FixedInteger
-        + bigint::NegMod<Output = Self::Uint>
         + bigint::Random
         + bigint::RandomMod
-        + bigint::SubMod<Output = Self::Uint>
+        + bigint::Unsigned
         + zeroize::Zeroize
         + FieldBytesEncoding<Self>
         + ShrAssign<usize>;
 
-    /// Order of this elliptic curve, i.e. number of elements in the scalar
-    /// field.
-    const ORDER: Self::Uint;
+    /// Order of this curve's prime order subgroup, i.e. number of elements in the scalar field.
+    const ORDER: Odd<Self::Uint>;
 }
 
 /// Marker trait for elliptic curves with prime order.

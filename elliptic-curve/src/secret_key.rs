@@ -8,9 +8,9 @@
 #[cfg(all(feature = "pkcs8", feature = "sec1"))]
 mod pkcs8;
 
-use crate::{Curve, Error, FieldBytes, Result, ScalarPrimitive};
+use crate::{Curve, Error, FieldBytes, Result, ScalarValue};
+use array::typenum::Unsigned;
 use core::fmt::{self, Debug};
-use hybrid_array::typenum::Unsigned;
 use subtle::{Choice, ConstantTimeEq, CtOption};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
@@ -19,9 +19,6 @@ use crate::{
     CurveArithmetic, NonZeroScalar, PublicKey,
     rand_core::{CryptoRng, TryCryptoRng},
 };
-
-#[cfg(feature = "jwk")]
-use crate::jwk::{JwkEcKey, JwkParameters};
 
 #[cfg(feature = "pem")]
 use pem_rfc7468::{self as pem, PemLabel};
@@ -45,11 +42,8 @@ use {
     sec1::der::Encode,
 };
 
-#[cfg(all(feature = "arithmetic", any(feature = "jwk", feature = "pem")))]
+#[cfg(all(feature = "arithmetic", feature = "pem"))]
 use alloc::string::String;
-
-#[cfg(all(feature = "arithmetic", feature = "jwk"))]
-use alloc::string::ToString;
 
 #[cfg(all(doc, feature = "pkcs8"))]
 use {crate::pkcs8::DecodePrivateKey, core::str::FromStr};
@@ -80,7 +74,7 @@ use {crate::pkcs8::DecodePrivateKey, core::str::FromStr};
 #[derive(Clone)]
 pub struct SecretKey<C: Curve> {
     /// Scalar value
-    inner: ScalarPrimitive<C>,
+    inner: ScalarValue<C>,
 }
 
 impl<C> SecretKey<C>
@@ -93,13 +87,17 @@ where
     const MIN_SIZE: usize = 24;
 
     /// Generate a random [`SecretKey`].
-    #[cfg(feature = "arithmetic")]
-    pub fn random<R: CryptoRng + ?Sized>(rng: &mut R) -> Self
+    ///
+    /// # Panics
+    ///
+    /// If the system's cryptographically secure RNG has an internal error.
+    #[cfg(feature = "getrandom")]
+    pub fn generate() -> Self
     where
         C: CurveArithmetic,
     {
         Self {
-            inner: NonZeroScalar::<C>::random(rng).into(),
+            inner: NonZeroScalar::<C>::generate().into(),
         }
     }
 
@@ -116,24 +114,35 @@ where
         })
     }
 
+    /// Deprecated: Generate a random [`SecretKey`].
+    #[cfg(feature = "arithmetic")]
+    #[deprecated(since = "0.14.0", note = "use `generate` or `try_from_rng` instead")]
+    pub fn random<R: CryptoRng + ?Sized>(rng: &mut R) -> Self
+    where
+        C: CurveArithmetic,
+    {
+        let Ok(ret) = Self::try_from_rng(rng);
+        ret
+    }
+
     /// Create a new secret key from a scalar value.
     ///
     /// # Returns
     ///
     /// This will return a none if the scalar is all-zero.
-    pub fn from_scalar(scalar: impl Into<ScalarPrimitive<C>>) -> CtOption<Self> {
+    pub fn from_scalar(scalar: impl Into<ScalarValue<C>>) -> CtOption<Self> {
         let inner = scalar.into();
         CtOption::new(Self { inner }, !inner.is_zero())
     }
 
-    /// Borrow the inner secret [`ScalarPrimitive`] value.
+    /// Borrow the inner secret [`ScalarValue`] value.
     ///
     /// # ⚠️ Warning
     ///
     /// This value is key material.
     ///
     /// Please treat it with the care it deserves!
-    pub fn as_scalar_primitive(&self) -> &ScalarPrimitive<C> {
+    pub fn as_scalar_value(&self) -> &ScalarValue<C> {
         &self.inner
     }
 
@@ -163,7 +172,7 @@ where
 
     /// Deserialize secret key from an encoded secret scalar.
     pub fn from_bytes(bytes: &FieldBytes<C>) -> Result<Self> {
-        let inner = ScalarPrimitive::<C>::from_bytes(bytes)
+        let inner = ScalarValue::<C>::from_bytes(bytes)
             .into_option()
             .ok_or(Error)?;
 
@@ -277,48 +286,6 @@ where
             })
             .map(Zeroizing::new)
             .ok_or(Error)
-    }
-
-    /// Parse a [`JwkEcKey`] JSON Web Key (JWK) into a [`SecretKey`].
-    #[cfg(feature = "jwk")]
-    pub fn from_jwk(jwk: &JwkEcKey) -> Result<Self>
-    where
-        C: JwkParameters + ValidatePublicKey,
-        FieldBytesSize<C>: ModulusSize,
-    {
-        Self::try_from(jwk)
-    }
-
-    /// Parse a string containing a JSON Web Key (JWK) into a [`SecretKey`].
-    #[cfg(feature = "jwk")]
-    pub fn from_jwk_str(jwk: &str) -> Result<Self>
-    where
-        C: JwkParameters + ValidatePublicKey,
-        FieldBytesSize<C>: ModulusSize,
-    {
-        jwk.parse::<JwkEcKey>().and_then(|jwk| Self::from_jwk(&jwk))
-    }
-
-    /// Serialize this secret key as [`JwkEcKey`] JSON Web Key (JWK).
-    #[cfg(all(feature = "arithmetic", feature = "jwk"))]
-    pub fn to_jwk(&self) -> JwkEcKey
-    where
-        C: CurveArithmetic + JwkParameters,
-        AffinePoint<C>: FromEncodedPoint<C> + ToEncodedPoint<C>,
-        FieldBytesSize<C>: ModulusSize,
-    {
-        self.into()
-    }
-
-    /// Serialize this secret key as JSON Web Key (JWK) string.
-    #[cfg(all(feature = "arithmetic", feature = "jwk"))]
-    pub fn to_jwk_string(&self) -> Zeroizing<String>
-    where
-        C: CurveArithmetic + JwkParameters,
-        AffinePoint<C>: FromEncodedPoint<C> + ToEncodedPoint<C>,
-        FieldBytesSize<C>: ModulusSize,
-    {
-        Zeroizing::new(self.to_jwk().to_string())
     }
 }
 

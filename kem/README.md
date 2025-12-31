@@ -2,10 +2,10 @@
 
 [![crate][crate-image]][crate-link]
 [![Docs][docs-image]][docs-link]
+[![Build Status][build-image]][build-link]
 ![Apache2/MIT licensed][license-image]
 ![Rust Version][rustc-image]
 [![Project Chat][chat-image]][chat-link]
-[![Build Status][build-image]][build-link]
 
 This crate provides a common set of traits for [key encapsulation mechanisms][1]—algorithms for non-interactively establishing secrets between peers. This is intended to be implemented by libraries which produce or contain implementations of key encapsulation mechanisms, and used by libraries which want to produce or consume encapsulated secrets while generically supporting any compatible backend.
 
@@ -18,9 +18,9 @@ impl Encapsulate<SaberEncappedKey, SaberSharedSecret> for MyPubkey {
     // Encapsulation is infallible
     type Error = !;
 
-    fn encapsulate(
+    fn encapsulate_with_rng<R: TryCryptoRng + ?Sized>(
         &self,
-        csprng: impl CryptoRngCore,
+        csprng: &mut R,
     ) -> Result<(SaberEncappedKey, SaberSharedSecret), !> {
         let (ss, ek) = saber_encapsulate(&csprng, &self.0);
         Ok((ek, ss))
@@ -43,9 +43,9 @@ impl Encapsulate<EphemeralKey, SharedSecret> for EncapContext {
     // Encapsulation fails if signature verification fails
     type Error = SigError;
 
-    fn encapsulate(
+    fn encapsulate_with_rng<R: TryCryptoRng + ?Sized>(
         &self,
-        csprng: impl CryptoRngCore,
+        csprng: &mut R,
     ) -> Result<(EphemeralKey, SharedSecret), Self::Error> {
         // Make a new ephemeral key. This will be the encapped key
         let ek = EphemeralKey::gen(&mut csprng);

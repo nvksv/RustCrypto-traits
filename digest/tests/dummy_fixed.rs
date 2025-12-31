@@ -75,6 +75,17 @@ mod block_api {
             })
         }
     }
+
+    #[cfg(feature = "zeroize")]
+    impl Drop for FixedHashCore {
+        fn drop(&mut self) {
+            use zeroize::Zeroize;
+            self.state.zeroize();
+        }
+    }
+
+    #[cfg(feature = "zeroize")]
+    impl zeroize::ZeroizeOnDrop for FixedHashCore {}
 }
 
 digest::buffer_fixed!(
@@ -99,3 +110,14 @@ digest::buffer_fixed!(
     oid: "0.1.2.3.4.5";
     impl: FixedHashTraits;
 );
+
+#[cfg(feature = "dev")]
+digest::hash_serialization_test!(fixed_hash_serialization, FixedHashWithSer,);
+
+#[cfg(feature = "zeroize")]
+/// check for `ZeroizeOnDrop` implementations
+const _: () = {
+    const fn check_zeroize<T: zeroize::ZeroizeOnDrop>() {}
+    check_zeroize::<FixedHashWithSer>();
+    check_zeroize::<FixedHashWithOidSer>();
+};

@@ -4,14 +4,14 @@
 mod blinded;
 #[cfg(feature = "arithmetic")]
 mod nonzero;
-mod primitive;
+mod value;
 
-pub use self::primitive::ScalarPrimitive;
+pub use self::value::ScalarValue;
 
 #[cfg(feature = "arithmetic")]
 pub use self::{blinded::BlindedScalar, nonzero::NonZeroScalar};
 
-use crypto_bigint::Integer;
+use bigint::Integer;
 use subtle::Choice;
 
 #[cfg(feature = "arithmetic")]
